@@ -1,0 +1,75 @@
+import os
+import re
+import tmdbsimple as tmdb
+import requests
+
+# Chave de API do TMDb "sua chave"
+tmdb_api_key = "sua key"
+
+# Inicializa a API do TMDb
+tmdb.API_KEY = tmdb_api_key
+
+# URL da API
+api_url = "sua API URL"
+
+# Diretório de saída para os arquivos M3U8
+output_directory = "./m3u8_files"
+os.makedirs(output_directory, exist_ok=True)
+
+# Dicionário para fazer a correspondência entre _id e rpath
+id_to_rpath = {}
+
+# Função para remover datas, anos entre parênteses, hífens, extensões de arquivo e "4K [HDR]"
+def clean_title(title):
+    cleaned_title = re.sub(r'(\(\d{4}\)|-\s*\d{4}|\..*|\b4K\s*\[HDR\]\b)', '', title).strip()
+    return re.sub(r'\(\d{4}\)|-\s*\d{4}', '', cleaned_title).strip()
+
+# Faz a solicitação GET para a API
+response = requests.get(api_url)
+
+# Verifica se a solicitação foi bem-sucedida
+if response.status_code == 200:
+    data = response.json()
+
+    # Preenche o dicionário com as correspondências
+    for item in data:
+        _id = item.get("_id")
+        rpath = item.get("rpath")
+        orgfile = item.get("orgfile")
+
+        # Verifica se _id, rpath e orgfile estão presentes
+        if _id and rpath and orgfile:
+            # Remove qualquer barra dupla extra e formata o URL corretamente
+            rpath = rpath.strip("/")
+            m3u8_url = f"SUA m3U URL/{rpath}/index.m3u8"
+            id_to_rpath[_id] = (orgfile, m3u8_url)
+
+    # Cria o arquivo M3U8 com os links e informações do TMDb
+    m3u8_file = os.path.join(output_directory, "links_com_tmdb.m3u8")
+    with open(m3u8_file, "w", encoding="utf-8") as f:
+        for _id, (orgfile, m3u8_url) in id_to_rpath.items():
+            # Remove datas, anos entre parênteses, hífens, extensões de arquivo e "4K [HDR]"
+            nome_sem_extensao = clean_title(orgfile)
+            
+            # Busca informações do TMDb com base no título limpo
+            search = tmdb.Search()
+            search_response = search.movie(query=nome_sem_extensao)
+            
+            # Verifica se há resultados na pesquisa
+            if search_response.get("total_results", 0) > 0:
+                # Pega o primeiro resultado
+                movie_info = search_response.get("results", [{}])[0]
+                # Obtém o título do filme
+                tmdb_title = movie_info.get("title", "Título não encontrado")
+                # Obtém a data de lançamento
+                release_date = movie_info.get("release_date", "Data de lançamento desconhecida")
+                # Adiciona as informações ao arquivo M3U8
+                f.write(f"# nome: {tmdb_title} (TMDb: {tmdb_title} - {release_date})\n{m3u8_url}\n")
+            else:
+                # Se nenhum resultado for encontrado no TMDb, usa o título original
+                f.write(f"# nome: {nome_sem_extensao} (TMDb: Filme não encontrado)\n{m3u8_url}\n")
+
+    print(f"Arquivo M3U8 com links e informações do TMDb baixado como '{m3u8_file}'.")
+
+else:
+    print("Falha ao obter dados da API.")
